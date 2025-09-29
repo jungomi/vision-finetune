@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "accelerate>=1.3.0",
-    "bitsandbytes==0.45.2",
+    "bitsandbytes>=0.47.0",
     "hf-transfer>=0.1.9",
     "ninja>=1.13.0",
     "peft>=0.14.0",
@@ -76,12 +76,6 @@ no-build-isolation-package = ["triton", "xformers"]
 default-groups = ["dev", "full"]
 
 [tool.uv.sources]
-# Are you serious... This doesn't compile the extension.
-# HOW CAN THIS BE SO BAD???
-# Will hopefully be implemented when the PR is merged: https://github.com/bitsandbytes-foundation/bitsandbytes/pull/1512
-bitsandbytes = { git = "https://github.com/bitsandbytes-foundation/bitsandbytes", tag = "0.45.2", marker =  "platform_machine == 'aarch64'" }
-# TODO: For now the only solution I have, is to build bnb manually.
-# bitsandbytes = { path = "build/bitsandbytes-0.45.2", marker =  "platform_machine == 'aarch64'" }
 torch = [
   { index = "pytorch-cu126", marker = "platform_machine == 'aarch64'" },
 ]
@@ -89,7 +83,6 @@ torchvision = [
   { index = "pytorch-cu126", marker = "platform_machine == 'aarch64'" },
 ]
 triton = { git = "https://github.com/triton-lang/triton", subdirectory = "python", branch = "release/3.2.x", marker = "platform_machine == 'aarch64'" }
-# FIXME: Get rid of rev once unsloth is not botched anymore. (No idea what the issue is now)
 unsloth = { git = "https://github.com/unslothai/unsloth.git" }
 unsloth-zoo = { git = "https://github.com/unslothai/unsloth-zoo.git" }
 xformers = { git = "https://github.com/facebookresearch/xformers", tag = "v0.0.29.post3", marker = "platform_machine == 'aarch64'" }
