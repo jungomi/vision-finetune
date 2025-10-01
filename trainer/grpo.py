@@ -8,7 +8,7 @@ from transformers import BatchEncoding
 from trl.trainer.utils import selective_log_softmax
 from unsloth import FastModel
 
-from config.grpo import GrpoScale
+from config.grpo import GrpoImportanceWeight, GrpoScale
 from dataset.batch import Batch, GroupedBatch
 from dataset.prefill import prefix_completions_with_prefill
 from dist import sync_dict_values
@@ -34,6 +34,7 @@ class GrpoTrainer(BaseTrainer):
     """
 
     scale_rewards: GrpoScale
+    importance_weight: GrpoImportanceWeight
 
     def __init__(
         self,
@@ -58,6 +59,7 @@ class GrpoTrainer(BaseTrainer):
         kl_weight: float = 0.01,
         clip_range: float = 0.2,
         scale_rewards: GrpoScale = "std",
+        importance_weight: GrpoImportanceWeight = "token",
         **kwargs,
     ):
         super().__init__(metrics=metrics, *args, **kwargs)
@@ -68,6 +70,7 @@ class GrpoTrainer(BaseTrainer):
         self.kl_weight = kl_weight
         self.clip_range = clip_range
         self.scale_rewards = scale_rewards
+        self.importance_weight = importance_weight
 
     @torch.no_grad()
     def generate_completions(self, batch: Batch, num: int = 1) -> GroupedBatch:
@@ -318,7 +321,23 @@ class GrpoTrainer(BaseTrainer):
         log_diff = ref_log_probs - log_probs
         kl_divergence = torch.exp(log_diff) - log_diff - 1
 
-        advantage_coeff1 = torch.exp(log_probs - old_log_probs)
+        # Only keep the loss values for actual completion tokens (i.e. remove padding).
+        # The +1 is due to the outputs being shifted by 1.
+        completion_mask = inputs.attention_mask[:, prompt_len + 1 :].to(torch.bool)
+
+        log_ratio = log_probs - old_log_probs
+        match self.importance_weight:
+            case "token":
+                log_importance_weight = log_ratio
+            case "sequence":
+                # In order for the remaining calculations to work with the token
+                # version, the reduced (token) dimension is kept as a singular
+                # dimension, so that it is broadcast across all tokens.
+                log_importance_weight = torch.mean(
+                    log_ratio[completion_mask], dim=-1, keepdim=True
+                )
+
+        advantage_coeff1 = torch.exp(log_importance_weight)
         advantage_coeff2 = torch.clamp(
             advantage_coeff1, 1 - self.clip_range, 1 + self.clip_range
         )
@@ -329,9 +348,6 @@ class GrpoTrainer(BaseTrainer):
         loss = self.kl_weight * kl_divergence - torch.min(
             advantage_term1, advantage_term2
         )
-        # Only keep the loss values for actual completion tokens (i.e. remove padding).
-        # The +1 is due to the outputs being shifted by 1.
-        completion_mask = inputs.attention_mask[:, prompt_len + 1 :].to(torch.bool)
         loss = torch.mean(loss[completion_mask])
 
         return TrainOutput(

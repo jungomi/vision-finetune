@@ -6,6 +6,8 @@ from simple_parsing import choice
 
 type GrpoScale = Literal["std", "max-len", "none"]
 
+type GrpoImportanceWeight = Literal["token", "sequence"]
+
 
 @dataclass
 class GrpoConfig:
@@ -31,3 +33,10 @@ class GrpoConfig:
     temperature: float = 0.6
     # Top-P to use for the generation of the group samples for GRPO.
     top_p: float = 0.92
+
+    # How to weight the importance of a response. "token" (default) is the original GRPO
+    # weighting where each token contributes individually to the weight, whereas
+    # "sequence" is GSPO, which creates one importance weight per sequence.
+    importance_weight: GrpoImportanceWeight = choice(
+        *typing.get_args(GrpoImportanceWeight.__value__), default="token"
+    )

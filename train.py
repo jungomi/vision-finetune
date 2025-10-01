@@ -235,6 +235,7 @@ def main() -> None:
                 kl_weight=cfg.grpo.kl_weight,
                 temperature=cfg.grpo.temperature,
                 top_p=cfg.grpo.top_p,
+                importance_weight=cfg.grpo.importance_weight,
                 prefill=cfg.prefill,
             )
 
