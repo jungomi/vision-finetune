@@ -321,9 +321,10 @@ class GrpoTrainer(BaseTrainer):
         log_diff = ref_log_probs - log_probs
         kl_divergence = torch.exp(log_diff) - log_diff - 1
 
-        # Only keep the loss values for actual completion tokens (i.e. remove padding).
+        # Only keep the values for actual completion tokens (i.e. remove padding).
         # The +1 is due to the outputs being shifted by 1.
-        completion_mask = inputs.attention_mask[:, prompt_len + 1 :].to(torch.bool)
+        completion_mask = inputs.attention_mask[:, prompt_len + 1 :]
+        num_completion_tokens = torch.sum(completion_mask, dim=-1, keepdim=True)
 
         log_ratio = log_probs - old_log_probs
         match self.importance_weight:
@@ -333,8 +334,13 @@ class GrpoTrainer(BaseTrainer):
                 # In order for the remaining calculations to work with the token
                 # version, the reduced (token) dimension is kept as a singular
                 # dimension, so that it is broadcast across all tokens.
-                log_importance_weight = torch.mean(
-                    log_ratio[completion_mask], dim=-1, keepdim=True
+                # NOTE: This uses a multiplication with the mask and the sum instead of
+                # filterting with log_ratio[completion_mask] for the fact that this
+                # acess would flatten the values into a single vector.
+                # Also, this is faster than materialising the subset.
+                log_importance_weight = (
+                    torch.sum(log_ratio * completion_mask, dim=-1, keepdim=True)
+                    / num_completion_tokens
                 )
 
         advantage_coeff1 = torch.exp(log_importance_weight)
@@ -348,7 +354,13 @@ class GrpoTrainer(BaseTrainer):
         loss = self.kl_weight * kl_divergence - torch.min(
             advantage_term1, advantage_term2
         )
-        loss = torch.mean(loss[completion_mask])
+        # The loss is only calculated for the completion tokens.
+        # NOTE: This multiplication is slightly faster than accessing the masked
+        # values with loss[completion_mask.to(torch.bool)].
+        loss = torch.mean(
+            torch.sum(loss * completion_mask, dim=-1, keepdim=True)
+            / num_completion_tokens
+        )
 
         return TrainOutput(
             loss=loss,
